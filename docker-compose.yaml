@@ -30,6 +30,7 @@ services:
       MYSQL_DATABASE: chatroom
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      SECRET_KEY: hknova
     ports:
       - "8080:8080"
 

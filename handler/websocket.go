@@ -13,4 +13,7 @@ func (s *Server) websocketHandler(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
+	username := c.Query("username")
+	s.Clients[username] = conn
+	fmt.Println("user " + username + " is now online.")
 }

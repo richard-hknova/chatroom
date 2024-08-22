@@ -2,16 +2,22 @@ package handler
 
 import (
 	"chatroom/database"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
 type Server struct {
 	DB       *database.DB
 	Upgrader *websocket.Upgrader
+	Secret   string
+	Clients  map[string]*websocket.Conn
 }
 
 func NewServer() *Server {
@@ -26,7 +32,45 @@ func NewServer() *Server {
 			return true
 		},
 	}
-	return &Server{DB: DB, Upgrader: Upgrader}
+	return &Server{DB: DB, Upgrader: Upgrader, Secret: os.Getenv("SECRET_KEY")}
+}
+
+func (s *Server) authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := c.GetHeader("Authorization")
+		fmt.Println(tokenString)
+		splitToken := strings.Split(tokenString, " ")
+		if splitToken[0] != "Bearer" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
+			c.Abort()
+			return
+		}
+		if splitToken[1] == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is missing"})
+			c.Abort()
+			return
+		}
+
+		token, err := jwt.ParseWithClaims(splitToken[1], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(s.Secret), nil
+		})
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.Abort()
+			return
+		}
+
+		if !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		claims := token.Claims.(*CustomClaims)
+		c.Set("username", claims.Username)
+		c.Set("avatar", claims.Avatar)
+		c.Next()
+	}
 }
 
 func CORSMiddleware() gin.HandlerFunc {
@@ -47,12 +91,12 @@ func CORSMiddleware() gin.HandlerFunc {
 func (s *Server) Start() {
 	app := gin.Default()
 	app.Use(CORSMiddleware())
-	app.GET("/ws", s.websocketHandler)
+	app.GET("/ws", s.authMiddleware(), s.websocketHandler)
 	app.POST("/user/signin", s.signInHandler)
 	app.POST("/user/signup", s.signUpHandler)
-	app.GET("/user/search", s.searchUserHandler)
-	app.POST("/friend/request", s.requestFriendHandler)
-	app.PUT("/friend/accept", s.acceptFriendHandler)
-	app.DELETE("/friend/delete", s.deleteFriendHandler)
+	app.GET("/user/search", s.authMiddleware(), s.searchUserHandler)
+	app.POST("/friend/request", s.authMiddleware(), s.requestFriendHandler)
+	app.PUT("/friend/accept", s.authMiddleware(), s.acceptFriendHandler)
+	app.DELETE("/friend/delete", s.authMiddleware(), s.deleteFriendHandler)
 	app.Run(":8080")
 }

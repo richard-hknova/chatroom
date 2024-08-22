@@ -6,8 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func getAuthFromHeader(c *gin.Context) (string, string, error) {
@@ -25,6 +27,24 @@ func getAuthFromHeader(c *gin.Context) (string, string, error) {
 		return "", "", errors.New("invalid credentials")
 	}
 	return credentials[0], credentials[1], nil
+}
+
+type CustomClaims struct {
+	Username string `json:"username"`
+	Avatar   int    `json:"avatar"`
+	jwt.RegisteredClaims
+}
+
+func (s *Server) genToken(user *database.User) (string, error) {
+	claims := CustomClaims{
+		user.Username,
+		user.Avatar,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.Secret))
 }
 
 func (s *Server) signInHandler(c *gin.Context) {
@@ -48,15 +68,22 @@ func (s *Server) signInHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	token, err := s.genToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	type Response struct {
 		Profile  database.User
 		Requests []database.User
 		Friends  []database.User
+		Token    string
 	}
 	response := Response{
 		Profile:  database.User{Username: user.Username, Avatar: user.Avatar},
 		Requests: requests,
 		Friends:  friends,
+		Token:    token,
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -95,6 +122,8 @@ func (s *Server) searchUserHandler(c *gin.Context) {
 
 func (s *Server) requestFriendHandler(c *gin.Context) {
 	target := c.Query("target")
+	username := c.GetString("username")
+	avatar := c.GetInt("avatar")
 	var user database.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -102,7 +131,7 @@ func (s *Server) requestFriendHandler(c *gin.Context) {
 		})
 		return
 	}
-	err := s.DB.SetRequest(user, target)
+	err := s.DB.SetRequest(username, avatar, target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return
@@ -111,17 +140,16 @@ func (s *Server) requestFriendHandler(c *gin.Context) {
 }
 
 func (s *Server) acceptFriendHandler(c *gin.Context) {
-	var res struct {
-		User   database.User `json:"user"`
-		Target database.User `json:"target"`
-	}
-	if err := c.ShouldBindJSON(&res); err != nil {
+	username := c.GetString("username")
+	avatar := c.GetInt("avatar")
+	var target database.User
+	if err := c.ShouldBindJSON(&target); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
-	err := s.DB.SetFriend(res.User, res.Target)
+	err := s.DB.SetFriend(username, avatar, target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return
@@ -130,9 +158,9 @@ func (s *Server) acceptFriendHandler(c *gin.Context) {
 }
 
 func (s *Server) deleteFriendHandler(c *gin.Context) {
-	user := c.Query("user")
+	username := c.GetString("username")
 	target := c.Query("target")
-	err := s.DB.DeleteFriendOrRequest(user, target)
+	err := s.DB.DeleteFriendOrRequest(username, target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return

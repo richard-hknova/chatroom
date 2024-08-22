@@ -72,15 +72,15 @@ func (db *DB) AuthUser(username string, password string) (*User, error) {
 	return user, nil
 }
 
-func (db *DB) SetFriend(user User, target User) error {
-	if err := db.database.Model(&Friend{}).Where("user_one = ? AND user_two = ?", user.Username, target.Username).Update("accepted", true).Error; err != nil {
+func (db *DB) SetFriend(username string, avatar int, target User) error {
+	if err := db.database.Model(&Friend{}).Where("user_one = ? AND user_two = ?", username, target.Username).Update("accepted", true).Error; err != nil {
 		fmt.Println("Error updating friends data:", err)
 		return err
 	}
 	pipe := db.cache.Pipeline()
-	pipe.HDel(context.Background(), fmt.Sprintf("request:%s", user.Username), target.Username)
-	pipe.HSet(context.Background(), fmt.Sprintf("friend:%s", user.Username), target.Username, target.Avatar)
-	pipe.HSet(context.Background(), fmt.Sprintf("friend:%s", target.Username), user.Username, user.Avatar)
+	pipe.HDel(context.Background(), fmt.Sprintf("request:%s", username), target.Username)
+	pipe.HSet(context.Background(), fmt.Sprintf("friend:%s", username), target.Username, target.Avatar)
+	pipe.HSet(context.Background(), fmt.Sprintf("friend:%s", target.Username), username, avatar)
 	_, err := pipe.Exec(context.Background())
 	if err != nil {
 		return err
@@ -88,16 +88,16 @@ func (db *DB) SetFriend(user User, target User) error {
 	return nil
 }
 
-func (db *DB) SetRequest(user User, target string) error {
+func (db *DB) SetRequest(username string, avatar int, target string) error {
 	friend := Friend{
-		UserOne:  user.Username,
+		UserOne:  username,
 		UserTwo:  target,
 		Accepted: false,
 	}
 	if err := db.database.Create(friend).Error; err != nil {
 		return err
 	}
-	if err := db.cache.HSet(context.Background(), fmt.Sprintf("request:%s", target), user.Username, user.Avatar).Err(); err != nil {
+	if err := db.cache.HSet(context.Background(), fmt.Sprintf("request:%s", target), username, avatar).Err(); err != nil {
 		return err
 	}
 	return nil
