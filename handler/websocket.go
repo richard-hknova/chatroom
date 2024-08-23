@@ -25,23 +25,7 @@ func (s *Server) websocketHandler(c *gin.Context) {
 	s.Clients[username] = conn
 	fmt.Println("user " + username + " is now online.")
 	s.handleMsg(conn, username)
-	delete(s.Clients, username)
-	friends, err := s.DB.GetFriends(username)
-	if err != nil {
-		fmt.Println("Error getting friend list:", err)
-		return
-	}
-	for _, friend := range friends {
-		if client, found := s.Clients[friend.Username]; found {
-			data, err := json.Marshal(WebSocketMsg{"Offline Alert", username})
-			if err != nil {
-				fmt.Println("Error packing message:", err)
-				continue
-			}
-			client.WriteMessage(websocket.TextMessage, data)
-		}
-	}
-	fmt.Println("user " + username + " is now offline.")
+	s.handleOffline(username)
 }
 
 func (s *Server) handleMsg(conn *websocket.Conn, username string) {
@@ -66,4 +50,24 @@ func (s *Server) handleMsg(conn *websocket.Conn, username string) {
 		}
 		s.DB.AddMsg(username, msg)
 	}
+}
+
+func (s *Server) handleOffline(username string) {
+	delete(s.Clients, username)
+	friends, err := s.DB.GetFriends(username)
+	if err != nil {
+		fmt.Println("Error getting friend list:", err)
+		return
+	}
+	for _, friend := range friends {
+		if client, found := s.Clients[friend.Username]; found {
+			data, err := json.Marshal(WebSocketMsg{"Offline Alert", username})
+			if err != nil {
+				fmt.Println("Error packing message:", err)
+				continue
+			}
+			client.WriteMessage(websocket.TextMessage, data)
+		}
+	}
+	fmt.Println("user " + username + " is now offline.")
 }
