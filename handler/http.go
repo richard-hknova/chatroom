@@ -74,13 +74,11 @@ func (s *Server) signInHandler(c *gin.Context) {
 		return
 	}
 	type Response struct {
-		Profile  database.User
 		Requests []database.User
 		Friends  []database.User
 		Token    string
 	}
 	response := Response{
-		Profile:  database.User{Username: user.Username, Avatar: user.Avatar},
 		Requests: requests,
 		Friends:  friends,
 		Token:    token,
@@ -93,12 +91,11 @@ func (s *Server) signUpHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	user, err := s.DB.GetUser(username)
-	if err != nil && err.Error() != "record not found" {
+
+	if user, err := s.DB.GetUser(username); err != nil && err.Error() != "record not found" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-	if user != nil {
+	} else if user != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "username already exist"})
 		return
 	}
@@ -107,7 +104,12 @@ func (s *Server) signUpHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, nil)
+	token, err := s.genToken(&database.User{Username: username, Avatar: 1})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, token)
 }
 
 func (s *Server) searchUserHandler(c *gin.Context) {
@@ -124,13 +126,6 @@ func (s *Server) requestFriendHandler(c *gin.Context) {
 	target := c.Query("target")
 	username := c.GetString("username")
 	avatar := c.GetInt("avatar")
-	var user database.User
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
 	err := s.DB.SetRequest(username, avatar, target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})

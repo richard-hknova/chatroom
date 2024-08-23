@@ -2,7 +2,6 @@ package handler
 
 import (
 	"chatroom/database"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -32,13 +31,12 @@ func NewServer() *Server {
 			return true
 		},
 	}
-	return &Server{DB: DB, Upgrader: Upgrader, Secret: os.Getenv("SECRET_KEY")}
+	return &Server{DB, Upgrader, os.Getenv("SECRET_KEY"), make(map[string]*websocket.Conn)}
 }
 
 func (s *Server) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := c.GetHeader("Authorization")
-		fmt.Println(tokenString)
 		splitToken := strings.Split(tokenString, " ")
 		if splitToken[0] != "Bearer" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
@@ -50,7 +48,6 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
 		token, err := jwt.ParseWithClaims(splitToken[1], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 			return []byte(s.Secret), nil
 		})
