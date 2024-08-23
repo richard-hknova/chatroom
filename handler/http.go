@@ -3,13 +3,16 @@ package handler
 import (
 	"chatroom/database"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 )
 
 func getAuthFromHeader(c *gin.Context) (string, string, error) {
@@ -58,6 +61,11 @@ func (s *Server) signInHandler(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
+	msgs, err := s.DB.GetUnreceivedMessages(username)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
 	requests, err := s.DB.GetRequests(user.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -68,17 +76,29 @@ func (s *Server) signInHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	for _, friend := range friends {
+		if client, found := s.Clients[friend.Username]; found {
+			data, err := json.Marshal(WebSocketMsg{"Online Alert", username})
+			if err != nil {
+				fmt.Println("Error packing message:", err)
+				continue
+			}
+			client.WriteMessage(websocket.TextMessage, data)
+		}
+	}
 	token, err := s.genToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	type Response struct {
+		Messages []database.Message
 		Requests []database.User
 		Friends  []database.User
 		Token    string
 	}
 	response := Response{
+		Messages: msgs,
 		Requests: requests,
 		Friends:  friends,
 		Token:    token,
@@ -131,6 +151,14 @@ func (s *Server) requestFriendHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return
 	}
+	if client, found := s.Clients[target]; found {
+		data, err := json.Marshal(WebSocketMsg{"Friend Request", database.User{Username: username, Avatar: avatar}})
+		if err != nil {
+			fmt.Println("Error packing message:", err)
+			return
+		}
+		client.WriteMessage(websocket.TextMessage, data)
+	}
 	c.JSON(http.StatusOK, nil)
 }
 
@@ -149,6 +177,14 @@ func (s *Server) acceptFriendHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return
 	}
+	if client, found := s.Clients[target.Username]; found {
+		data, err := json.Marshal(WebSocketMsg{"Friend Accept", target})
+		if err != nil {
+			fmt.Println("Error packing message:", err)
+			return
+		}
+		client.WriteMessage(websocket.TextMessage, data)
+	}
 	c.JSON(http.StatusOK, nil)
 }
 
@@ -159,6 +195,14 @@ func (s *Server) deleteFriendHandler(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong. Please try again later."})
 		return
+	}
+	if client, found := s.Clients[target]; found {
+		data, err := json.Marshal(WebSocketMsg{"Friend Delete", target})
+		if err != nil {
+			fmt.Println("Error packing message:", err)
+			return
+		}
+		client.WriteMessage(websocket.TextMessage, data)
 	}
 	c.JSON(http.StatusOK, nil)
 }

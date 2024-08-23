@@ -64,7 +64,7 @@ func (db *DB) GetFriends(username string) ([]User, error) {
 		for key, friend := range users {
 			avatar, err := strconv.Atoi(friend)
 			if err != nil {
-				return make([]User, 0), err
+				return nil, err
 			}
 			friends = append(friends, User{Username: key, Avatar: avatar})
 		}
@@ -82,7 +82,7 @@ func (db *DB) GetFriends(username string) ([]User, error) {
 	}
 	_, err := pipe.Exec(context.Background())
 	if err != nil {
-		return make([]User, 0), err
+		return nil, err
 	}
 	return friends, nil
 }
@@ -93,7 +93,7 @@ func (db *DB) GetRequests(username string) ([]User, error) {
 		for key, friend := range users {
 			avatar, err := strconv.Atoi(friend)
 			if err != nil {
-				return make([]User, 0), err
+				return nil, err
 			}
 			friends = append(friends, User{Username: key, Avatar: avatar})
 		}
@@ -111,20 +111,20 @@ func (db *DB) GetRequests(username string) ([]User, error) {
 	}
 	_, err := pipe.Exec(context.Background())
 	if err != nil {
-		return make([]User, 0), err
+		return nil, err
 	}
 	return friends, nil
 }
 
-func (db *DB) DeleteFriendOrRequest(user string, target string) error {
-	if err := db.database.Where("user_one = ? AND user_two = ? OR user_one = ? AND user_two = ?", user, target, target, user).Delete(&Friend{}).Error; err != nil {
+func (db *DB) DeleteFriendOrRequest(username string, target string) error {
+	if err := db.database.Where("user_one = ? AND user_two = ? OR user_one = ? AND user_two = ?", username, target, target, username).Delete(&Friend{}).Error; err != nil {
 		fmt.Println("Error updating friends data:", err)
 		return err
 	}
 	pipe := db.cache.Pipeline()
-	pipe.HDel(context.Background(), fmt.Sprintf("request:%s", user), target)
-	pipe.HDel(context.Background(), fmt.Sprintf("friend:%s", user), target)
-	pipe.HDel(context.Background(), fmt.Sprintf("friend:%s", target), user)
+	pipe.HDel(context.Background(), fmt.Sprintf("request:%s", username), target)
+	pipe.HDel(context.Background(), fmt.Sprintf("friend:%s", username), target)
+	pipe.HDel(context.Background(), fmt.Sprintf("friend:%s", target), username)
 	_, err := pipe.Exec(context.Background())
 	if err != nil {
 		return err
